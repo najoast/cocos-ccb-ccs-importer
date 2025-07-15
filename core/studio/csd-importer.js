@@ -1553,7 +1553,7 @@ function _initLabel(node, nodeData, cb) {
 
                 _loaderFntAsset(bmfntCfg, (err, font) => {
                     if (err || !font) { 
-                        Editor.warn('Failed to load font asset for BMFont, err:', err, 'font:', font);
+                        Editor.warn('Failed to load font asset for BMFont, err:', err, 'font:', font, 'bmfntCfg:', bmfntCfg);
                         next();
                         return;
                     }

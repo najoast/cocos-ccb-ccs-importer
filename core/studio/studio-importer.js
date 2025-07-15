@@ -105,6 +105,39 @@ function _parseProjectInfo (rootNode) {
     Editor.log('Project Name : %s, Cocos Studio Version : %s', projectName, projVer);
 }
 
+function _findCSDFile(folderPath) {
+    // Check if the path exists and is a directory
+    if (!Fs.existsSync(folderPath)) {
+        return null;
+    }
+    
+    var stats = Fs.statSync(folderPath);
+    if (!stats.isDirectory()) {
+        // If it's already a .csd file, return it
+        if (Path.extname(folderPath) === '.csd') {
+            return folderPath;
+        }
+        return null;
+    }
+    
+    try {
+        // Read directory contents
+        var files = Fs.readdirSync(folderPath);
+        
+        // Look for .csd files in the directory
+        for (var i = 0; i < files.length; i++) {
+            var file = files[i];
+            if (Path.extname(file) === '.csd') {
+                return Path.join(folderPath, file);
+            }
+        }
+    } catch (err) {
+        Editor.warn('Failed to read directory %s: %s', folderPath, err.message);
+    }
+    
+    return null;
+}
+
 function _rmdirRecursive (path) {
     if( Fs.existsSync(path) ) {
         Fs.readdirSync(path).forEach(function(file){
@@ -281,8 +314,11 @@ function _importResources(node, resPath) {
                 _importResources(child, filePath);
                 break;
             case 'Project':
-                // csd file, record it
-                csdFiles.push(filePath);
+                // csd file, find the actual .csd file in the project folder
+                var csdFilePath = _findCSDFile(filePath);
+                if (csdFilePath) {
+                    csdFiles.push(csdFilePath);
+                }
                 break;
             case 'PlistInfo':
                 // csi file, do nothing
