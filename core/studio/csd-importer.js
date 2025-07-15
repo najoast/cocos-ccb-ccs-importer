@@ -1310,10 +1310,30 @@ function _initParticle(node, nodeData, cb) {
 
     if (plistUrl) {
         var uuid = Editor.assetdb.remote.urlToUuid(plistUrl);
-        if (Editor.assetdb.remote.existsByUuid(uuid)) {
-            par.file = Editor.assetdb.remote._fspath(plistUrl);
-            par.custom = false;
+        if (uuid && Editor.assetdb.remote.existsByUuid(uuid)) {
+            // Load the asset first, then assign it
+            Editor.log('Loading particle file with UUID: %s for URL: %s', uuid, plistUrl);
+            cc.assetManager.loadAny(uuid, function (err, asset) {
+                if (err) {
+                    Editor.error('Failed to load particle asset %s: %s', uuid, err.message);
+                    cb();
+                    return;
+                }
+                if (asset) {
+                    par.file = asset;
+                    par.custom = false;
+                    Editor.log('Successfully set particle file asset');
+                } else {
+                    Editor.warn('Loaded asset is null for UUID: %s', uuid);
+                }
+                cb();
+            });
+            return; // Don't call cb() immediately, wait for async load
+        } else {
+            Editor.warn('Failed to find particle asset for URL: %s, UUID: %s', plistUrl, uuid);
         }
+    } else {
+        Editor.warn('No plist URL provided for particle system');
     }
 
     cb();

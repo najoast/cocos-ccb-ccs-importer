@@ -50,10 +50,16 @@ function importProject (projFile, cb) {
         return;
     }
 
-    _createTempResPath();
+    // Validate that project name was parsed successfully
+    if (!projectName || !newResourceUrl) {
+        cb(new Error('Failed to parse project name from project file.'));
+        return;
+    }
 
     // import the resource files
     try {
+        _createTempResPath();
+        
         // create a folder with project name in assets
         _createAssetFolder(resourcePath);
 
@@ -66,15 +72,28 @@ function importProject (projFile, cb) {
         Async.waterfall([
             function(next) {
                 // import raw assets
+                Editor.log('Importing raw assets from: %s', tempResPath);
                 Editor.assetdb.import([tempResPath], AssetsRootUrl, false, function(err, results) {
+                    if (err) {
+                        Editor.error('Failed to import raw assets: %s', err.message);
+                        return next(err);
+                    }
+                    Editor.log('Raw assets import completed successfully');
                     next();
                 });
             },
             function(next) {
                 // import csd files
+                Editor.log('Importing CSD files...');
                 CSDImporter.importCSDFiles(csdFiles, resourcePath, tempResPath, newResourceUrl, next);
             }
-        ], function () {
+        ], function (err) {
+            if (err) {
+                Editor.error('Import process failed: %s', err.message);
+                _removeTempResPath();
+                return cb(err);
+            }
+            
             Editor.log('Import Cocos Studio project finished.');
             Editor.log('Resources are imported to folder : %s', newResourceUrl);
 
@@ -85,7 +104,9 @@ function importProject (projFile, cb) {
         // TODO remove temp path if error occurred???
         //_removeTempResPath();
 
-        cb(new Error('Import resource files failed.'));
+        Editor.error('Import resource files failed with error: %s', err.message);
+        Editor.error('Stack trace: %s', err.stack);
+        cb(new Error('Import resource files failed: ' + err.message));
     }
 }
 
@@ -139,28 +160,73 @@ function _findCSDFile(folderPath) {
 }
 
 function _rmdirRecursive (path) {
-    if( Fs.existsSync(path) ) {
-        Fs.readdirSync(path).forEach(function(file){
+    if( !Fs.existsSync(path) ) {
+        return; // Path doesn't exist, nothing to do
+    }
+    
+    try {
+        var files = Fs.readdirSync(path);
+        files.forEach(function(file){
             var curPath = Path.join(path, file);
-            if(Fs.lstatSync(curPath).isDirectory()) { // recurse
-                _rmdirRecursive(curPath);
-            } else { // delete file
-                Fs.unlinkSync(curPath);
+            try {
+                // Check if file still exists before processing
+                if (!Fs.existsSync(curPath)) {
+                    return; // Skip if file doesn't exist
+                }
+                
+                var stats = Fs.lstatSync(curPath);
+                if(stats.isDirectory()) { // recurse
+                    _rmdirRecursive(curPath);
+                } else { // delete file
+                    try {
+                        Fs.unlinkSync(curPath);
+                    } catch (unlinkErr) {
+                        if (unlinkErr.code !== 'ENOENT') {
+                            Editor.warn('Failed to delete file %s: %s', curPath, unlinkErr.message);
+                        }
+                    }
+                }
+            } catch (err) {
+                // File might have been deleted already or is inaccessible
+                if (err.code !== 'ENOENT') {
+                    Editor.warn('Failed to process file %s: %s', curPath, err.message);
+                }
             }
         });
-        Fs.rmdirSync(path);
+        
+        // Try to remove the directory
+        try {
+            Fs.rmdirSync(path);
+        } catch (rmdirErr) {
+            if (rmdirErr.code === 'ENOTEMPTY') {
+                Editor.warn('Directory %s is not empty and cannot be removed', path);
+            } else if (rmdirErr.code !== 'ENOENT') {
+                Editor.warn('Failed to remove directory %s: %s', path, rmdirErr.message);
+            }
+        }
+    } catch (readdirErr) {
+        Editor.warn('Failed to read directory %s: %s', path, readdirErr.message);
     }
 }
 
 function _createTempResPath() {
     // create a temp path for import project
+    if (!newResourceUrl) {
+        throw new Error('newResourceUrl is not set, cannot create temp path');
+    }
+    
     var folderName = Url.basename(newResourceUrl);
+    if (!folderName) {
+        throw new Error('Invalid newResourceUrl, cannot extract folder name: ' + newResourceUrl);
+    }
+    
     tempResPath = Path.join(Editor.remote.Project.path, TempFolderName, folderName);
     if (Fs.existsSync(tempResPath)) {
         _rmdirRecursive(tempResPath);
     }
 
     Fs.mkdirsSync(tempResPath);
+    Editor.log('Created temp resource path: %s', tempResPath);
 }
 
 function _removeTempResPath() {
@@ -195,18 +261,36 @@ function _createAssetFolder(folderPath) {
 }
 
 function _importParticle(particleFile) {
+    if (!particleFile) {
+        Editor.warn('_importParticle called with undefined particleFile');
+        return;
+    }
+    
     _importAsset(particleFile);
 
     if (!Fs.existsSync(particleFile)) {
         return;
     }
 
-    var dict = Plist.parse(Fs.readFileSync(particleFile, 'utf8'));
-    if (dict) {
-        var imgPath = Path.join(Path.dirname(particleFile), dict['textureFileName']);
-        if (Fs.existsSync(imgPath)) {
-            _importAsset(imgPath);
+    try {
+        var dict = Plist.parse(Fs.readFileSync(particleFile, 'utf8'));
+        if (dict && dict['textureFileName']) {
+            var textureFileName = dict['textureFileName'];
+            if (typeof textureFileName === 'string' && textureFileName.trim()) {
+                var imgPath = Path.join(Path.dirname(particleFile), textureFileName);
+                if (Fs.existsSync(imgPath)) {
+                    _importAsset(imgPath);
+                } else {
+                    Editor.warn('Texture file not found for particle: %s', imgPath);
+                }
+            } else {
+                Editor.warn('Invalid textureFileName in particle file: %s', particleFile);
+            }
+        } else {
+            Editor.warn('No textureFileName found in particle file: %s', particleFile);
         }
+    } catch (err) {
+        Editor.error('Failed to parse particle file %s: %s', particleFile, err.message);
     }
 }
 
@@ -300,6 +384,11 @@ function _importFNT(fntFile) {
 }
 
 function _importResources(node, resPath) {
+    if (!node || !resPath) {
+        Editor.warn('_importResources called with invalid parameters: node=%s, resPath=%s', node, resPath);
+        return;
+    }
+    
     for (var i = 0, n = node.childNodes.length; i < n; i++) {
         var child = node.childNodes[i];
         if (XmlUtils.shouldIgnoreNode(child)) {
@@ -307,6 +396,11 @@ function _importResources(node, resPath) {
         }
 
         var nameAttr = child.getAttribute('Name');
+        if (!nameAttr || typeof nameAttr !== 'string') {
+            Editor.warn('Skipping node with invalid Name attribute: %s', nameAttr);
+            continue;
+        }
+        
         var filePath = Path.join(resPath, nameAttr);
         switch (child.nodeName) {
             case 'Folder':
