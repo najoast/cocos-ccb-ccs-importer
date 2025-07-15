@@ -1552,7 +1552,11 @@ function _initLabel(node, nodeData, cb) {
             } else if (bmfntCfg) {
 
                 _loaderFntAsset(bmfntCfg, (err, font) => {
-                    if (err || !font) { next(); }
+                    if (err || !font) { 
+                        Editor.warn('Failed to load font asset for BMFont, err:', err, 'font:', font);
+                        next();
+                        return;
+                    }
                     var config = font._fntConfig;
                     label._fontSize = config.fontSize;
                     label.lineHeight = config.commonHeight;
