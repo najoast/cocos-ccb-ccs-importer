@@ -92,16 +92,52 @@ function _parseProjectInfo (projFile) {
 }
 
 function _rmdirRecursive (path) {
-    if( Fs.existsSync(path) ) {
-        Fs.readdirSync(path).forEach(function(file){
+    if( !Fs.existsSync(path) ) {
+        return; // Path doesn't exist, nothing to do
+    }
+    
+    try {
+        var files = Fs.readdirSync(path);
+        files.forEach(function(file){
             var curPath = Path.join(path, file);
-            if(Fs.lstatSync(curPath).isDirectory()) { // recurse
-                _rmdirRecursive(curPath);
-            } else { // delete file
-                Fs.unlinkSync(curPath);
+            try {
+                // Check if file still exists before processing
+                if (!Fs.existsSync(curPath)) {
+                    return; // Skip if file doesn't exist
+                }
+                
+                var stats = Fs.lstatSync(curPath);
+                if(stats.isDirectory()) { // recurse
+                    _rmdirRecursive(curPath);
+                } else { // delete file
+                    try {
+                        Fs.unlinkSync(curPath);
+                    } catch (unlinkErr) {
+                        if (unlinkErr.code !== 'ENOENT') {
+                            Editor.warn('Failed to delete file %s: %s', curPath, unlinkErr.message);
+                        }
+                    }
+                }
+            } catch (err) {
+                // File might have been deleted already or is inaccessible
+                if (err.code !== 'ENOENT') {
+                    Editor.warn('Failed to process file %s: %s', curPath, err.message);
+                }
             }
         });
-        Fs.rmdirSync(path);
+        
+        // Try to remove the directory
+        try {
+            Fs.rmdirSync(path);
+        } catch (rmdirErr) {
+            if (rmdirErr.code === 'ENOTEMPTY') {
+                Editor.warn('Directory %s is not empty and cannot be removed', path);
+            } else if (rmdirErr.code !== 'ENOENT') {
+                Editor.warn('Failed to remove directory %s: %s', path, rmdirErr.message);
+            }
+        }
+    } catch (readdirErr) {
+        Editor.warn('Failed to read directory %s: %s', path, readdirErr.message);
     }
 }
 
