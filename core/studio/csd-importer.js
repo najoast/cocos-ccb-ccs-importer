@@ -79,13 +79,20 @@ var importedCSDFiles = [];
 var resRootUrl = '';
 var resTempPath = '';
 var resRootPath = ''; // the root path of resources in studio project
+var forceReimport = false; // whether to force reimport existing assets
+var importStats = { skipped: 0, imported: 0 }; // import statistics
 
 var actTag2NodePath = {};
 
-function importCSDFiles(csdFiles, baseResPath, tempResPath, targetRootUrl, cb) {
+function importCSDFiles(csdFiles, baseResPath, tempResPath, targetRootUrl, cb, options) {
     resRootPath = baseResPath;
     resTempPath = tempResPath;
     resRootUrl = targetRootUrl;
+    forceReimport = options && options.forceReimport || false;
+    
+    // Reset statistics
+    importStats.skipped = 0;
+    importStats.imported = 0;
 
     var index = 0;
     Async.whilst(
@@ -99,6 +106,7 @@ function importCSDFiles(csdFiles, baseResPath, tempResPath, targetRootUrl, cb) {
             });
         },
         function () {
+            Editor.log('CSD import completed - Imported: %d, Skipped: %d', importStats.imported, importStats.skipped);
             cb();
         }
     );
@@ -154,14 +162,17 @@ function _importCSDFile(csdFilePath, cb) {
     // get the temp path & creator method
     var tempPath = null;
     var useFunc = null;
+    var targetUrl = null;
     switch (csdType) {
         case 'Scene':
             tempPath = _genTempPath(csdFilePath, '.fire');
+            targetUrl = _genImportedCSDUrl(csdFilePath, '.fire');
             useFunc = _createSceneFromData;
             break;
         case 'Node':
         case 'Layer':
             tempPath = _genTempPath(csdFilePath, '.prefab');
+            targetUrl = _genImportedCSDUrl(csdFilePath, '.prefab');
             useFunc = _createPrefabFromData;
             break;
     }
@@ -169,6 +180,20 @@ function _importCSDFile(csdFilePath, cb) {
     if (!useFunc) {
         cb();
         return;
+    }
+
+    // Check if the target asset already exists
+    if (!forceReimport) {
+        var targetUuid = Editor.assetdb.remote.urlToUuid(targetUrl);
+        if (targetUuid && Editor.assetdb.remote.existsByUuid(targetUuid)) {
+            Editor.log('CSD file %s already imported (target: %s), skipping...', Path.basename(csdFilePath), targetUrl);
+            importedCSDFiles.push(csdFilePath);
+            importStats.skipped++;
+            cb();
+            return;
+        }
+    } else {
+        Editor.log('Force reimport enabled for %s', Path.basename(csdFilePath));
     }
 
     Async.waterfall([
@@ -194,6 +219,7 @@ function _importCSDFile(csdFilePath, cb) {
             var targetUrl = Url.join(resRootUrl, relativePath);
             Editor.assetdb.import([tempPath], Url.dirname(targetUrl), false, function (err, results) {
                 importedCSDFiles.push(csdFilePath);
+                importStats.imported++;
                 next();
             });
         }
@@ -2017,4 +2043,5 @@ function _genScrollBar(direction, name, viewSize) {
 
 module.exports = {
     importCSDFiles: importCSDFiles,
+    getImportStats: function() { return importStats; }
 };
