@@ -913,14 +913,17 @@ function _createNodeGraph(rootNode, nodeData, parentNodePath, cb) {
                     cb(null, index < children.length);
                 },
                 function(callback) {
-                    _createNodeGraph(null, children[index], curNodePath, function(newNode) {
-                        rootNode.addChild(newNode);
-                        // adjust the position of the child node
-                        if (newNode.getParent()) {
-                            newNode.setPosition(_convertNodePos(newNode));
-                        }
-                        index++;
-                        callback();
+                    // Use setImmediate to avoid stack overflow when processing large numbers of child nodes
+                    setImmediate(function() {
+                        _createNodeGraph(null, children[index], curNodePath, function(newNode) {
+                            rootNode.addChild(newNode);
+                            // adjust the position of the child node
+                            if (newNode.getParent()) {
+                                newNode.setPosition(_convertNodePos(newNode));
+                            }
+                            index++;
+                            callback();
+                        });
                     });
                 },
                 function() {
@@ -1246,7 +1249,7 @@ function _initSpriteWithSizeMode(node, nodeData, sizeMode, cb) {
     var sp = node.addComponent(cc.Sprite);
     if (!sp) {
         Editor.warn('Add sprite component for node %s failed.', nodeData.getAttribute('Name'));
-        return cb;
+        return cb();
     }
 
     // init blend function
@@ -1258,8 +1261,12 @@ function _initSpriteWithSizeMode(node, nodeData, sizeMode, cb) {
     var fileDataNode = XmlUtils.getFirstChildNodeByName(nodeData, 'FileData');
     sp.sizeMode = sizeMode;
     sp.trim = false;
-    sp.spriteFrame = _getSpriteFrame(fileDataNode, '');
-    cb();
+    
+    // Use setImmediate to avoid stack overflow when processing large numbers of sprites
+    setImmediate(function() {
+        sp.spriteFrame = _getSpriteFrame(fileDataNode, '');
+        cb();
+    });
 }
 
 function _initImageView(node, nodeData, cb) {
@@ -1421,86 +1428,89 @@ function _initButton(node, nodeData, cb) {
     // set the button enable/disable
     btn.interactable = XmlUtils.getBoolPropertyOfNode(nodeData, 'DisplayState', true);
 
-    // init the sprite frame
-    btn.transition = cc.Button.Transition.SPRITE;
-    var normalCfg = XmlUtils.getFirstChildNodeByName(nodeData, 'NormalFileData');
-    sp.spriteFrame = _getSpriteFrame(normalCfg, DEFAULT_BTN_NORMAL_URL);
-    btn.normalSprite = _getSpriteFrame(normalCfg, DEFAULT_BTN_NORMAL_URL);
-    btn.hoverSprite = _getSpriteFrame(normalCfg, DEFAULT_BTN_NORMAL_URL);
+    // Use setImmediate to avoid stack overflow when processing large numbers of buttons
+    setImmediate(function() {
+        // init the sprite frame
+        btn.transition = cc.Button.Transition.SPRITE;
+        var normalCfg = XmlUtils.getFirstChildNodeByName(nodeData, 'NormalFileData');
+        sp.spriteFrame = _getSpriteFrame(normalCfg, DEFAULT_BTN_NORMAL_URL);
+        btn.normalSprite = _getSpriteFrame(normalCfg, DEFAULT_BTN_NORMAL_URL);
+        btn.hoverSprite = _getSpriteFrame(normalCfg, DEFAULT_BTN_NORMAL_URL);
 
-    var pressedCfg = XmlUtils.getFirstChildNodeByName(nodeData, 'PressedFileData');
-    btn.pressedSprite = _getSpriteFrame(pressedCfg, DEFAULT_BTN_PRESSED_URL);
+        var pressedCfg = XmlUtils.getFirstChildNodeByName(nodeData, 'PressedFileData');
+        btn.pressedSprite = _getSpriteFrame(pressedCfg, DEFAULT_BTN_PRESSED_URL);
 
-    var disabledCfg = XmlUtils.getFirstChildNodeByName(nodeData, 'DisabledFileData');
-    btn.disabledSprite = _getSpriteFrame(disabledCfg, DEFAULT_BTN_DISABLED_URL);
+        var disabledCfg = XmlUtils.getFirstChildNodeByName(nodeData, 'DisabledFileData');
+        btn.disabledSprite = _getSpriteFrame(disabledCfg, DEFAULT_BTN_DISABLED_URL);
 
-    // add a label child
-    var btnText = XmlUtils.getPropertyOfNode(nodeData, 'ButtonText', '');
-    if (btnText) {
-        var labelNode = new cc.Node('Label');
-        labelNode.setContentSize(node.getContentSize());
-        node.addChild(labelNode);
-        var label = labelNode.addComponent(cc.Label);
-        var fontSize = XmlUtils.getIntPropertyOfNode(nodeData, 'FontSize', 14);
-        var txtColor = new cc.Color(XmlUtils.getIntPropertyOfNode(nodeData, 'R', 65, 'TextColor'),
-            XmlUtils.getIntPropertyOfNode(nodeData, 'G', 65, 'TextColor'),
-            XmlUtils.getIntPropertyOfNode(nodeData, 'B', 70, 'TextColor'));
-        var txtOpacity = XmlUtils.getIntPropertyOfNode(nodeData, 'A', 255, 'TextColor');
-        labelNode.color = txtColor;
-        labelNode.opacity = txtOpacity;
-        label.string = btnText;
-        label._fontSize = fontSize;
-        label.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
-        label.verticalAlign = cc.Label.VerticalAlign.CENTER;
+        // add a label child
+        var btnText = XmlUtils.getPropertyOfNode(nodeData, 'ButtonText', '');
+        if (btnText) {
+            var labelNode = new cc.Node('Label');
+            labelNode.setContentSize(node.getContentSize());
+            node.addChild(labelNode);
+            var label = labelNode.addComponent(cc.Label);
+            var fontSize = XmlUtils.getIntPropertyOfNode(nodeData, 'FontSize', 14);
+            var txtColor = new cc.Color(XmlUtils.getIntPropertyOfNode(nodeData, 'R', 65, 'TextColor'),
+                XmlUtils.getIntPropertyOfNode(nodeData, 'G', 65, 'TextColor'),
+                XmlUtils.getIntPropertyOfNode(nodeData, 'B', 70, 'TextColor'));
+            var txtOpacity = XmlUtils.getIntPropertyOfNode(nodeData, 'A', 255, 'TextColor');
+            labelNode.color = txtColor;
+            labelNode.opacity = txtOpacity;
+            label.string = btnText;
+            label._fontSize = fontSize;
+            label.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
+            label.verticalAlign = cc.Label.VerticalAlign.CENTER;
 
-        var widget = labelNode.addComponent(cc.StudioWidget);
-        widget.isAlignVerticalCenter = true;
-        widget.isAlignHorizontalCenter = true;
+            var widget = labelNode.addComponent(cc.StudioWidget);
+            widget.isAlignVerticalCenter = true;
+            widget.isAlignHorizontalCenter = true;
 
-        var fntResCfg = XmlUtils.getFirstChildNodeByName(nodeData, 'FontResource');
-        if (fntResCfg) {
-            _setFntFileForLabel(label, fntResCfg);
-        }
-    }
-
-    // implement 9Scale properties
-    if (scale9Enabled) {
-        var spFrames = [ btn.normalSprite, btn.pressedSprite, btn.disabledSprite ];
-        var uuids = [];
-        for (var i = 0, n = spFrames.length; i < n; i++) {
-            var frame = spFrames[i];
-            if (!frame) {
-                continue;
-            }
-
-            if (uuids.indexOf(frame._uuid) < 0) {
-                uuids.push(frame._uuid);
+            var fntResCfg = XmlUtils.getFirstChildNodeByName(nodeData, 'FontResource');
+            if (fntResCfg) {
+                _setFntFileForLabel(label, fntResCfg);
             }
         }
 
-        if (uuids.length === 0) {
-            cb();
-            return;
-        }
+        // implement 9Scale properties
+        if (scale9Enabled) {
+            var spFrames = [ btn.normalSprite, btn.pressedSprite, btn.disabledSprite ];
+            var uuids = [];
+            for (var i = 0, n = spFrames.length; i < n; i++) {
+                var frame = spFrames[i];
+                if (!frame) {
+                    continue;
+                }
 
-        var index = 0;
-        Async.whilst(
-            function(cb) {
-                cb(null, index < uuids.length);
-            },
-            function(callback) {
-                _setScale9Properties(nodeData, uuids[index], function () {
-                    index++;
-                    callback();
-                });
-            },
-            function() {
+                if (uuids.indexOf(frame._uuid) < 0) {
+                    uuids.push(frame._uuid);
+                }
+            }
+
+            if (uuids.length === 0) {
                 cb();
+                return;
             }
-        );
-    } else {
-        cb();
-    }
+
+            var index = 0;
+            Async.whilst(
+                function(cb) {
+                    cb(null, index < uuids.length);
+                },
+                function(callback) {
+                    _setScale9Properties(nodeData, uuids[index], function () {
+                        index++;
+                        callback();
+                    });
+                },
+                function() {
+                    cb();
+                }
+            );
+        } else {
+            cb();
+        }
+    });
 }
 
 function _initLabel(node, nodeData, cb) {
